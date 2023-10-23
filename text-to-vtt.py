@@ -7,6 +7,9 @@ import textwrap
 import re
 
 sys.stdout.write('\nStarting…\n')
+start_time = datetime.now()
+total_audio_duration = 0
+sys.stdout.write('{0}\n'.format(start_time))
 
 # Third-party libraries
 # TODO: See if whisper-jax will work and if it's faster (as claimed), when word-level timestamps are supported (https://github.com/sanchit-gandhi/whisper-jax/issues/37)
@@ -58,16 +61,17 @@ supported_languages = {
   'whisperx': ['ar', 'cs', 'da', 'de', 'el', 'en', 'es', 'fa', 'fi', 'fr', 'he', 'hi', 'hu', 'it', 'ja', 'ko', 'nl', 'pl', 'pt', 'ru', 'te', 'tr', 'uk', 'ur', 'vi', 'zh'],
   'stable_ts': ['af', 'am', 'ar', 'as', 'az', 'ba', 'be', 'bg', 'bn', 'bo', 'br', 'bs', 'ca', 'cs', 'cy', 'da', 'de', 'el', 'en', 'es', 'et', 'eu', 'fa', 'fi', 'fo', 'fr', 'gl', 'gu', 'ha', 'haw', 'he', 'hi', 'hr', 'ht', 'hu', 'hy', 'id', 'is', 'it', 'ja', 'jw', 'ka', 'kk', 'km', 'kn', 'ko', 'la', 'lb', 'ln', 'lo', 'lt', 'lv', 'mg', 'mi', 'mk', 'ml', 'mn', 'mr', 'ms', 'mt', 'my', 'ne', 'nl', 'nn', 'no', 'oc', 'pa', 'pl', 'ps', 'pt', 'ro', 'ru', 'sa', 'sd', 'si', 'sk', 'sl', 'sn', 'so', 'sq', 'sr', 'su', 'sv', 'sw', 'ta', 'te', 'tg', 'th', 'tk', 'tl', 'tr', 'tt', 'uk', 'ur', 'uz', 'vi', 'yi', 'yo', 'zh'],
 }
-device = 'cpu' # TODO: For macOS, switch to mps when it's working. See https://pytorch.org/docs/stable/notes/mps.html and https://github.com/pytorch/pytorch/issues/103343
+model_size = 'large-v2'
+device_type = 'cpu' # TODO: For macOS, switch to mps when it's working. See https://github.com/m-bain/whisperX/issues/109
 
 def whisperx_model(size):
   if size not in whisperx_models:
-    whisperx_models[size] = whisperx.load_model(size, device=device, compute_type='int8')
+    whisperx_models[size] = whisperx.load_model(size, device=device_type, compute_type='int8')
   return whisperx_models[size]
 
 def stable_ts_model(size):
   if size not in stable_ts_models:
-    stable_ts_models[size] = stable_whisper.load_model(size, dq=False)
+    stable_ts_models[size] = stable_whisper.load_model(size, device=device_type)
   return stable_ts_models[size]
     
 # Default options
@@ -203,7 +207,7 @@ for i, input_row in enumerate(input_rows):
     input_row['input_text'] = ''
     sys.stdout.write('\n  Transcribing audio to text\n')
     sys.stdout.write('\nWHISPERX: model.transcribe\n')
-    generated_transcript_data = whisperx_model('small').transcribe(whisperx_loaded_audio, language=lang, batch_size=4)
+    generated_transcript_data = whisperx_model(model_size).transcribe(whisperx_loaded_audio, language=lang, batch_size=4)
     for segment in generated_transcript_data['segments']:
       input_row['input_text'] += segment.get('text', '') + ' '
     sys.stdout.write('END\n\n')
@@ -266,79 +270,77 @@ for i, input_row in enumerate(input_rows):
   
   # Align transcript to audio
   sys.stdout.write('  Aligning text to audio ({0})\n'.format(options.alignment_method))
-  segments_with_word_data = []
+  timestamped_words = []
+  duration = librosa.get_duration(path=media_path)
+  total_audio_duration += duration
   if options.alignment_method == 'whisperx':
     rough_segments = [{
       'text': modified_transcript,
       'start': 0,
-      'end': librosa.get_duration(path=media_path),
+      'end': duration,
     }]
-    align_model, metadata = whisperx.load_align_model(language_code=lang, device=device)
-    result = whisperx.align(rough_segments, align_model, metadata, whisperx_loaded_audio, device, return_char_alignments=False)
-    segments_with_word_data = result['segments']
+    align_model, metadata = whisperx.load_align_model(language_code=lang, device=device_type)
+    result = whisperx.align(rough_segments, align_model, metadata, whisperx_loaded_audio, device_type, return_char_alignments=False)
+    for segment in result['segments']:
+      timestamped_words += segment['words']
   elif options.alignment_method == 'stable_ts':
-    result = stable_ts_model('small').align(media_path, modified_transcript, language=lang, vad=True)
-    words = []
+    result = stable_ts_model(model_size).align(media_path, modified_transcript, language=lang, vad=True)
     for word in result.all_words_or_segments():
       word_dict = word.to_dict()
       word_dict['word'] = word_dict['word'].strip()
-      words.append(word_dict)
-    segments_with_word_data = [{
-      'words': words
-    }]
+      timestamped_words.append(word_dict)
   
   # Structure timestamp data more cleanly
   sys.stdout.write('  Structuring data\n')
   blocks = []
   text_without_timestamps = ''
-  for segment in segments_with_word_data:
-    for word_data in segment['words']:
-      if word_data['word'] == '****':
-        # Prevent text without timestamps at the end of a block from being carried over to the next block
-        if text_without_timestamps:
-          blocks[-1]['phrases'][-1]['words'][-1]['text'] += ' ' + text_without_timestamps.strip()
-          text_without_timestamps = ''
-        # Add a new block
-        blocks.append({
-          'start_seconds': None,
-          'end_seconds': None,
-          'phrases': [],
-        })
-        continue
-      if word_data['word'] == '**':
-        # Prevent text without timestamps at the end of a phrase from being carried over to the next phrase
-        if text_without_timestamps:
-          blocks[-1]['phrases'][-1]['words'][-1]['text'] += ' ' + text_without_timestamps.strip()
-          text_without_timestamps = ''
-        # Add a new phrase in the current block
-        blocks[-1]['phrases'].append({
-          'start_seconds': None,
-          'end_seconds': None,
-          'words': [],
-        })
-        continue
-      
-      if 'start' in word_data and 'end' in word_data and word_data['end'] > word_data['start']:
-        # Update time info in current block and phrase
-        if not blocks[-1]['start_seconds']:
-          blocks[-1]['start_seconds'] = word_data['start']
-        if not blocks[-1]['phrases'][-1]['start_seconds']:
-          blocks[-1]['phrases'][-1]['start_seconds'] = word_data['start']
-        blocks[-1]['end_seconds'] = word_data['end']
-        blocks[-1]['phrases'][-1]['end_seconds'] = word_data['end']
-        blocks[-1]['end_seconds'] = word_data['end']
-        blocks[-1]['phrases'][-1]['end_seconds'] = word_data['end']
-        
-        # Add a new word in the current phrase
-        blocks[-1]['phrases'][-1]['words'].append({
-          'start_seconds': word_data['start'],
-          'end_seconds': word_data['end'],
-          'text': text_without_timestamps + word_data['word']
-        })
-        
+  for word_data in timestamped_words:
+    if word_data['word'] == '****':
+      # Prevent text without timestamps at the end of a block from being carried over to the next block
+      if text_without_timestamps:
+        blocks[-1]['phrases'][-1]['words'][-1]['text'] += ' ' + text_without_timestamps.strip()
         text_without_timestamps = ''
-      elif word_data['word']:
-        text_without_timestamps += word_data['word'] + ' '
+      # Add a new block
+      blocks.append({
+        'start_seconds': None,
+        'end_seconds': None,
+        'phrases': [],
+      })
+      continue
+    if word_data['word'] == '**':
+      # Prevent text without timestamps at the end of a phrase from being carried over to the next phrase
+      if text_without_timestamps:
+        blocks[-1]['phrases'][-1]['words'][-1]['text'] += ' ' + text_without_timestamps.strip()
+        text_without_timestamps = ''
+      # Add a new phrase in the current block
+      blocks[-1]['phrases'].append({
+        'start_seconds': None,
+        'end_seconds': None,
+        'words': [],
+      })
+      continue
+    
+    if 'start' in word_data and 'end' in word_data and word_data['end'] >= word_data['start']:
+      # Update time info in current block and phrase
+      if not blocks[-1]['start_seconds']:
+        blocks[-1]['start_seconds'] = word_data['start']
+      if not blocks[-1]['phrases'][-1]['start_seconds']:
+        blocks[-1]['phrases'][-1]['start_seconds'] = word_data['start']
+      blocks[-1]['end_seconds'] = word_data['end']
+      blocks[-1]['phrases'][-1]['end_seconds'] = word_data['end']
+      blocks[-1]['end_seconds'] = word_data['end']
+      blocks[-1]['phrases'][-1]['end_seconds'] = word_data['end']
+      
+      # Add a new word in the current phrase
+      blocks[-1]['phrases'][-1]['words'].append({
+        'start_seconds': word_data['start'],
+        'end_seconds': word_data['end'],
+        'text': text_without_timestamps + word_data['word']
+      })
+      
+      text_without_timestamps = ''
+    elif word_data['word']:
+      text_without_timestamps += word_data['word'] + ' '
       
   # Create VTT files
   sys.stdout.write('  Creating VTT file(s)\n')
@@ -418,4 +420,9 @@ for i, input_row in enumerate(input_rows):
     with open(vtt_output_path, 'w', encoding='utf-8') as f:
       f.write(vtt)
     
-sys.stdout.write('\nDone!\n\n')
+formatted_audio_duration = seconds_to_vtt_timestamp(total_audio_duration, 0)
+formatted_processing_time = seconds_to_vtt_timestamp((datetime.now() - start_time).total_seconds(), 0)
+sys.stdout.write('\nDone!\n')
+sys.stdout.write('{0} items\n'.format(len(input_rows)))
+sys.stdout.write('Audio duration: {0}\n'.format(formatted_audio_duration))
+sys.stdout.write('Processing time: {0}\n\n'.format(formatted_processing_time))

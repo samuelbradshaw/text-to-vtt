@@ -2,12 +2,14 @@
 
 Text to VTT is a Python script for generating [WebVTT](https://developer.mozilla.org/en-US/docs/Web/API/WebVTT_API) caption files with block, phrase, and/or word-level timestamps, given an audio or video recording and an existing transcript.
 
-This script relies on free and open-source machine learning libraries, including [OpenAI Whisper](https://github.com/openai/whisper) (speech recognition), [WhisperX](https://github.com/m-bain/whisperX) (word-level forced alignment), and [Demucs](https://github.com/facebookresearch/demucs) (audio separation).
+This script relies on free and open-source machine learning libraries, including [OpenAI Whisper](https://github.com/openai/whisper) (speech recognition), [WhisperX](https://github.com/m-bain/whisperX) (word-level forced alignment), [stable-ts](https://github.com/jianfch/stable-ts) (word-level alignment), and [Demucs](https://github.com/facebookresearch/demucs) (audio separation).
 
 Example WebVTT output files can be found in the `sample` folder in this repository.
 
 
 ## Installation
+
+This script is optimized for a Mac with Apple silicon, and has not been tested on other systems.
 
 1. Verify that Python 3 is installed. You will also need a package manager such as Homebrew (macOS) or apt (Linux).
 
@@ -51,6 +53,8 @@ Text to VTT takes a CSV or TSV spreadsheet file as input. The spreadsheet should
 * **input_media** (required if file not present) – URL to download the audio or video file in a standard format such as MP3, WAV, or MP4. Alternatively, if you already have the file locally, you can put the file under `_workfiles/media/` with a filename that matches the `id` specified above. If a matching file is present, this column will be ignored.
 
 * **input_text** (recommended if file not present) – Transcript text. Alternatively, you can put the transcript in a text file (extension .txt) under `_workfiles/text/` with a filename that matches the `id` specified above. If a matching file is present, this column will be ignored. If no text is provided, Text to VTT will generate a transcript from the audio. For best results, plain Unicode text (not HTML or Markdown) is recommended, with double line breaks between paragraph blocks. Words inside &lt;angle brackets&gt; or [square brackets] will be ignored.
+
+* **alignment_method** (optional) – Library that should be used for word-level alignment. Default: 'whisperx'. Supported values: 'whisperx' or 'stable_ts'.
 
 * **use_voice_isolation** (optional) – Whether the audio should be processed for voice isolation. This is recommended for music, but isn’t needed for clear spoken audio. Default: False. Supported values: True (or Yes or 1) or False (or No or 0).
 

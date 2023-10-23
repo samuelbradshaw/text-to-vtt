@@ -3,3 +3,4 @@ git+https://github.com/m-bain/whisperx.git
 git+https://github.com/jianfch/stable-ts.git
 requests
 librosa
+pydub

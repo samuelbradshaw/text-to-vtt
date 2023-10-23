@@ -15,6 +15,7 @@ import whisperx
 import stable_whisper
 import requests
 import librosa
+from pydub import AudioSegment
 
 # Set working directory
 working_directory = os.path.abspath(os.path.dirname(__file__))
@@ -155,9 +156,9 @@ for i, input_row in enumerate(input_rows):
   media_path = None
   for root, dirs, files in os.walk(workfiles_media_folder):
     for file in files:
-      filename_without_extension, extension = os.path.splitext(file)
-      if filename_without_extension == input_row.get('id'):
+      if file == input_row.get('id') + '.wav':
         media_path = os.path.join(root, file)
+        break
   if not media_path and '://' in input_row.get('input_media', ''):
     media_url = input_row.get('input_media').split('?')[0].split('#')[0]
     extension = media_url.split('.')[-1]
@@ -166,6 +167,13 @@ for i, input_row in enumerate(input_rows):
     if r.status_code == 200:
       with open(media_path, 'wb') as f:
         f.write(r.content)
+      if extension != 'wav':
+        # Convert to WAV format
+        new_media_path = os.path.join(workfiles_media_folder, input_row.get('id') + '.wav')
+        sound = AudioSegment.from_file(media_path, extension)
+        sound.export(new_media_path, format='wav')
+        os.remove(media_path)
+        media_path = new_media_path
     else:
       sys.stderr.write(f'  Error: Download failed (status code {r.status_code}). Skipping row.\n')
       continue

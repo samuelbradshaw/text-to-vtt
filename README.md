@@ -48,7 +48,7 @@ Text to VTT takes a CSV or TSV spreadsheet file as input. The spreadsheet should
 
 * **title** (required) – Title for the media file. This will appear in the WebVTT.
 
-* **lang** (required) – BCP 47 language tag representing the language of the media file. This will be used to load the correct language model and will appear in the WebVTT. These are the current supported language tags: ['de', 'en', 'es', 'fr', 'it', 'ja', 'nl', 'pt', 'uk', 'zh'].
+* **lang** (required) – BCP 47 language tag representing the language of the media file. This will be used to load the correct language model and will appear in the WebVTT. These are the current supported language tags: ['ar', 'cs', 'da', 'de', 'el', 'en', 'es', 'fa', 'fi', 'fr', 'he', 'hi', 'hu', 'it', 'ja', 'ko', 'nl', 'pl', 'pt', 'ru', 'te', 'tr', 'uk', 'ur', 'vi', 'zh'].
 
 * **input_media** (required if file not present) – URL to download the audio or video file in a standard format such as MP3, WAV, or MP4. Alternatively, if you already have the file locally, you can put the file under `_workfiles/media/` with a filename that matches the `id` specified above. If a matching file is present, this column will be ignored.
 
